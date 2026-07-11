@@ -1,0 +1,60 @@
+# General FoJumpPads settings.
+settings:
+  # Minimum delay before one player can trigger another jump pad.
+  global-cooldown-ticks: 10
+  # Prevent fall damage briefly after launch.
+  fall-damage-immunity-ticks: 80
+  # Drop the matching jump pad item when a saved jump pad block is broken.
+  drop-preset-item-on-break: true
+  # Maximum time path lock can hold airborne horizontal velocity.
+  path-lock-max-ticks: 100
+  # Worlds where jump pads never launch players.
+  disabled-worlds: []
+
+# Jump pad presets available through /fojumppadsadmin give.
+presets:
+  default:
+    enabled: true
+    material: LIGHT_WEIGHTED_PRESSURE_PLATE
+    display-name: "{theme}Default Jump Pad"
+    lore:
+      - "{white}Place to create a jump pad."
+      - "{muted}Launch: {theme}{horizontal}x {muted}/ {theme}{vertical}y"
+    velocity-horizontal: 1.15
+    velocity-vertical: 1.05
+    direction-mode: PLAYER_FACING
+    path-lock: false
+    cooldown-ticks: 10
+    fall-damage-immunity-ticks: 80
+    sound: ENTITY_FIREWORK_ROCKET_LAUNCH
+    particle: CLOUD
+  high:
+    enabled: true
+    material: HEAVY_WEIGHTED_PRESSURE_PLATE
+    display-name: "{theme}High Jump Pad"
+    lore:
+      - "{white}Place to create a vertical jump pad."
+      - "{muted}Launch: {theme}{horizontal}x {muted}/ {theme}{vertical}y"
+    velocity-horizontal: 0.45
+    velocity-vertical: 1.65
+    direction-mode: UPWARD_ONLY
+    path-lock: false
+    cooldown-ticks: 12
+    fall-damage-immunity-ticks: 100
+    sound: ENTITY_BREEZE_JUMP
+    particle: POOF
+  forward:
+    enabled: true
+    material: STONE_PRESSURE_PLATE
+    display-name: "{theme}Forward Jump Pad"
+    lore:
+      - "{white}Place to create a forward jump pad."
+      - "{muted}Launch: {theme}{horizontal}x {muted}/ {theme}{vertical}y"
+    velocity-horizontal: 1.9
+    velocity-vertical: 0.75
+    direction-mode: PLAYER_FACING
+    path-lock: false
+    cooldown-ticks: 10
+    fall-damage-immunity-ticks: 80
+    sound: ENTITY_FIREWORK_ROCKET_LAUNCH
+    particle: FIREWORK

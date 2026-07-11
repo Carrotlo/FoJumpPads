@@ -1,0 +1,230 @@
+package me.foesio.foJumpPads;
+
+import me.foesio.core.FoCoreContext;
+import me.foesio.core.FoPluginCore;
+import me.foesio.core.dialog.NativeDialogConfigDefaults;
+import me.foesio.core.message.FoMessageMigrations;
+import me.foesio.core.message.FoMessageService;
+import me.foesio.core.reload.FoReloadRegistry;
+import me.foesio.core.reload.FoReloadResult;
+import me.foesio.core.update.UpdateNoticeService;
+import org.bukkit.Bukkit;
+import org.bukkit.NamespacedKey;
+import org.bukkit.entity.Player;
+import org.bukkit.plugin.java.JavaPlugin;
+
+import java.io.File;
+import java.io.IOException;
+import java.sql.SQLException;
+import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Set;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+
+public final class FoJumpPads extends JavaPlugin {
+
+    public static final String DISPLAY_NAME = "FoJumpPads";
+    public static final String ADMIN_PERMISSION = "fojumppads.admin";
+    public static final String MODRINTH_PROJECT_ID = "fojumppads";
+    private static final int BSTATS_PLUGIN_ID = 32427;
+
+    private final Map<PadLocation, PadData> pads = new ConcurrentHashMap<>();
+
+    private FoCoreContext core;
+    private NamespacedKey presetKey;
+    private FoMessageService messages;
+    private GuiConfig guiConfig;
+    private PresetRegistry presetRegistry;
+    private PadStorage padStorage;
+    private UpdateNoticeService updates;
+    private FoReloadRegistry reloadRegistry;
+    private EditorManager editorManager;
+    private volatile Set<String> disabledWorlds = Set.of();
+    private volatile boolean dropPresetItemOnBreak = true;
+    private volatile long pathLockMaxMillis = 5000L;
+    private final Set<UUID> nativeDialogWarnedPlayers = ConcurrentHashMap.newKeySet();
+
+    @Override
+    public void onEnable() {
+        presetKey = new NamespacedKey(this, "preset");
+        saveDefaultConfig();
+
+        messages = FoMessageService.load(this, messageMigrations());
+        guiConfig = new GuiConfig(this, messages);
+        presetRegistry = new PresetRegistry(this);
+        reloadRegistry = FoReloadRegistry.create()
+                .add("config", this::reloadConfigState)
+                .addMessages(messages)
+                .add("presets", presetRegistry::reload);
+        reloadAll();
+        updates = core.createUpdateNotices(messages, MODRINTH_PROJECT_ID).start();
+
+        try {
+            padStorage = new PadStorage(this);
+            pads.putAll(padStorage.loadPads());
+            logInfo("Loaded " + pads.size() + " jump pads from userdata.db.");
+        } catch (Exception exception) {
+            logWarn("Could not open userdata.db: " + exception.getMessage());
+            Bukkit.getPluginManager().disablePlugin(this);
+            return;
+        }
+
+        editorManager = new EditorManager(this);
+
+        JumpPadListener jumpPadListener = new JumpPadListener(this);
+        Bukkit.getPluginManager().registerEvents(jumpPadListener, this);
+        Bukkit.getPluginManager().registerEvents(editorManager, this);
+
+        new AdminCommand(this).register();
+    }
+
+    @Override
+    public void onDisable() {
+        if (padStorage != null) {
+            try {
+                padStorage.close();
+            } catch (SQLException exception) {
+                logWarn("Could not close userdata.db: " + exception.getMessage());
+            }
+        }
+        if (core != null) {
+            core.close();
+            core = null;
+        }
+    }
+
+    public FoReloadResult reloadAll() {
+        return reloadRegistry.reload();
+    }
+
+    private void reloadConfigState() {
+        reloadConfig();
+        NativeDialogConfigDefaults.addDefaults(getConfig());
+        saveConfig();
+        refreshCore();
+        loadRuntimeSettings();
+    }
+
+    private void refreshCore() {
+        if (core != null) {
+            core.close();
+        }
+        core = FoPluginCore.create(this);
+        core.metrics(BSTATS_PLUGIN_ID);
+        core.warnIfNativeDialogsUnavailable();
+    }
+
+    private void loadRuntimeSettings() {
+        disabledWorlds = getConfig().getStringList("settings.disabled-worlds").stream()
+                .map(String::trim)
+                .filter(world -> !world.isBlank())
+                .map(world -> world.toLowerCase(Locale.ROOT))
+                .collect(java.util.stream.Collectors.toUnmodifiableSet());
+        dropPresetItemOnBreak = getConfig().getBoolean("settings.drop-preset-item-on-break", true);
+        pathLockMaxMillis = Math.max(1, getConfig().getInt("settings.path-lock-max-ticks", 100)) * 50L;
+        nativeDialogWarnedPlayers.clear();
+    }
+
+    private FoMessageMigrations messageMigrations() {
+        return FoMessageMigrations.create()
+                .removeExact("unknown-command",
+                        "{prefix}{bad}Unknown admin action. {muted}Use {theme}/fojumppadsadmin <version|reload|give|list|teleport|remove|editor>{muted}.")
+                .build();
+    }
+
+    public boolean saveMainConfig() {
+        try {
+            getConfig().save(new File(getDataFolder(), "config.yml"));
+            return true;
+        } catch (IOException exception) {
+            logWarn("Could not save config.yml: " + exception.getMessage());
+            return false;
+        }
+    }
+
+    public NamespacedKey presetKey() {
+        return presetKey;
+    }
+
+    public FoMessageService messages() {
+        return messages;
+    }
+
+    public GuiConfig guiConfig() {
+        return guiConfig;
+    }
+
+    public PresetRegistry presets() {
+        return presetRegistry;
+    }
+
+    public PadStorage storage() {
+        return padStorage;
+    }
+
+    public UpdateNoticeService updates() {
+        return updates;
+    }
+
+    public FoCoreContext core() {
+        return core;
+    }
+
+    public EditorManager editor() {
+        return editorManager;
+    }
+
+    public PadData padData(PadLocation location) {
+        return pads.get(location);
+    }
+
+    public Map<PadLocation, PadData> padSnapshot() {
+        return Collections.unmodifiableMap(new LinkedHashMap<>(pads));
+    }
+
+    public void putPad(PadLocation location, PadData data) {
+        pads.put(location, data);
+    }
+
+    public PadData removePad(PadLocation location) {
+        return pads.remove(location);
+    }
+
+    public boolean isWorldDisabled(String worldName) {
+        return worldName != null && disabledWorlds.contains(worldName.toLowerCase(Locale.ROOT));
+    }
+
+    public boolean dropPresetItemOnBreak() {
+        return dropPresetItemOnBreak;
+    }
+
+    public long pathLockMaxMillis() {
+        return pathLockMaxMillis;
+    }
+
+    public void warnNativeDialogFallback(Player player) {
+        warnNativeDialogFallback(player, false);
+    }
+
+    public void warnNativeDialogFallback(Player player, boolean force) {
+        if (!core.nativeDialogs().configEnabled()
+                || !core.nativeDialogs().warnOnFallback()
+                || (!force && core.nativeDialogs().canUseNativeDialogs())) {
+            return;
+        }
+        if (nativeDialogWarnedPlayers.add(player.getUniqueId())) {
+            messages.send(player, "native-dialog-fallback");
+        }
+    }
+
+    public void logInfo(String message) {
+        getLogger().info("[" + DISPLAY_NAME + "] " + message);
+    }
+
+    public void logWarn(String message) {
+        getLogger().warning("[" + DISPLAY_NAME + "] " + message);
+    }
+}

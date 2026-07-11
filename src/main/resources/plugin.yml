@@ -1,0 +1,20 @@
+name: FoJumpPads
+description: Configurable jump pad presets with admin tools.
+version: '${project.version}'
+
+main: me.foesio.foJumpPads.FoJumpPads
+api-version: '1.21'
+
+authors: [ Carrotio ]
+
+commands:
+  fojumppadsadmin:
+    description: FoJumpPads admin command.
+    usage: /fojumppadsadmin <version|reload|give|list|teleport|remove|editor>
+    aliases: [ jumppadsadmin ]
+    permission: fojumppads.admin
+
+permissions:
+  fojumppads.admin:
+    description: Allows FoJumpPads admin commands and update notices.
+    default: op
