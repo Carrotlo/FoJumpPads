@@ -139,7 +139,7 @@ public final class GuiConfig {
                     "{white}Disabled: {theme}{disabled_worlds}",
                     "{muted}Click to select worlds."
             ))),
-            Map.entry("preset-browser.items.add", new ItemTemplate(Material.LIME_DYE, "{good}Add Preset", List.of(
+            Map.entry("preset-browser.items.add", new ItemTemplate(Material.ANVIL, "{good}Add Preset", List.of(
                     "{white}Create a new preset."
             ))),
             Map.entry("preset-edit.items.enabled", new ItemTemplate(Material.LEVER, "{theme}Enabled", List.of(

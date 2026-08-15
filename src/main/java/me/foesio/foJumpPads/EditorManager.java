@@ -5,6 +5,10 @@ import me.foesio.core.dialog.TextDialogRequest;
 import me.foesio.core.editor.CursorItemEditor;
 import me.foesio.core.editor.EditorDialogInputs;
 import me.foesio.core.editor.EditorItemFactory;
+import me.foesio.core.gui.EntryBrowserClick;
+import me.foesio.core.gui.EntryBrowserHolder;
+import me.foesio.core.gui.EntryBrowserMenus;
+import me.foesio.core.gui.EntryBrowserRequest;
 import me.foesio.core.gui.GuiButtonConfig;
 import me.foesio.core.gui.GuiSlots;
 import me.foesio.core.number.LargeNumberParser;
@@ -122,39 +126,28 @@ public final class EditorManager implements Listener {
     private void openPresetBrowser(Player player, int page, String search) {
         String query = search == null ? "" : search;
         List<JumpPadPreset> presets = filteredPresets(query);
-        List<Integer> slots = entrySlots();
-        int entriesPerPage = Math.max(1, slots.size());
-        int pages = Math.max(1, (int) Math.ceil(presets.size() / (double) entriesPerPage));
-        int safePage = Math.max(0, Math.min(page, pages - 1));
-
-        Map<String, String> placeholders = browserPlaceholders(safePage, pages, query);
-        Inventory inventory = Bukkit.createInventory(player,
-                plugin.guiConfig().size("preset-browser", 54),
-                plugin.guiConfig().title("preset-browser", placeholders));
-        plugin.guiConfig().fill(inventory);
-
-        int start = safePage * entriesPerPage;
-        for (int index = 0; index < slots.size(); index++) {
-            int presetIndex = start + index;
-            if (presetIndex >= presets.size()) {
-                break;
-            }
-            setEntry(inventory, slots.get(index), presets.get(presetIndex));
+        List<EntryBrowserRequest.Entry> entries = presets.stream()
+                .map(preset -> EntryBrowserRequest.Entry.of(preset.id(), presetEntryItem(preset)))
+                .toList();
+        EntryBrowserRequest request = EntryBrowserRequest.builder()
+                .title(plugin.guiConfig().title("preset-browser", Map.of()))
+                .entries(entries)
+                .page(page)
+                .filter(query)
+                .buttons(buttons)
+                .showBack(true)
+                .addButton(presetAddButton())
+                .context(new PresetBrowserContext())
+                .build();
+        UUID uuid = player.getUniqueId();
+        opening.add(uuid);
+        chatPrompts.remove(uuid);
+        views.put(uuid, new EditorView(ViewType.BROWSER, null, Math.max(0, page), query));
+        try {
+            EntryBrowserMenus.open(player, request);
+        } finally {
+            clearOpeningLater(uuid);
         }
-
-        setButton(inventory, "preset-browser.items.add", placeholders);
-        setSearchButton(inventory, buttons.search(query));
-        if (!query.isBlank()) {
-            setClearSearchButton(inventory, buttons.clearSearch("presets"));
-        }
-        if (safePage > 0) {
-            setSharedButton(inventory, "preset-browser.items.previous", buttons.previousPage(safePage, pages - 1));
-        }
-        if (safePage < pages - 1) {
-            setSharedButton(inventory, "preset-browser.items.next", buttons.nextPage(safePage, pages - 1));
-        }
-        setBackButton(inventory);
-        open(player, inventory, new EditorView(ViewType.BROWSER, null, safePage, query));
     }
 
     private void openPresetEdit(Player player, String presetId, int page, String search) {
@@ -270,6 +263,18 @@ public final class EditorManager implements Listener {
         if (!(event.getWhoClicked() instanceof Player player)) {
             return;
         }
+        if (event.getView().getTopInventory().getHolder() instanceof EntryBrowserHolder holder) {
+            event.setCancelled(true);
+            if (!player.hasPermission(FoJumpPads.ADMIN_PERMISSION)) {
+                player.closeInventory();
+                plugin.messages().send(player, "no-permission");
+                return;
+            }
+            if (event.getClickedInventory() == event.getView().getTopInventory()) {
+                handleEntryBrowserClick(player, holder, event);
+            }
+            return;
+        }
         EditorView view = views.get(player.getUniqueId());
         if (view == null) {
             return;
@@ -297,7 +302,6 @@ public final class EditorManager implements Listener {
             case MAIN -> clickMain(player, slot);
             case SETTINGS -> clickSettings(player, slot);
             case WORLDS -> clickWorlds(player, slot, event.getView().getTopInventory());
-            case BROWSER -> clickBrowser(player, view, slot);
             case EDIT -> clickEdit(player, view, slot, event.getCursor());
             case SOUND_SELECTOR -> clickSoundSelector(player, view, slot);
             case PARTICLE_SELECTOR -> clickParticleSelector(player, view, slot);
@@ -307,12 +311,43 @@ public final class EditorManager implements Listener {
 
     @EventHandler
     public void onDrag(InventoryDragEvent event) {
-        if (!(event.getWhoClicked() instanceof Player player) || !views.containsKey(player.getUniqueId())) {
+        if (!(event.getWhoClicked() instanceof Player player)) {
+            return;
+        }
+        if (!(event.getView().getTopInventory().getHolder() instanceof EntryBrowserHolder)
+                && !views.containsKey(player.getUniqueId())) {
             return;
         }
         int topSize = event.getView().getTopInventory().getSize();
         if (event.getRawSlots().stream().anyMatch(slot -> slot < topSize)) {
             event.setCancelled(true);
+        }
+    }
+
+    private void handleEntryBrowserClick(Player player, EntryBrowserHolder holder, InventoryClickEvent event) {
+        EntryBrowserClick click = EntryBrowserMenus.handleClick(event.getRawSlot(), holder, event.getClick());
+        if (!(holder.request().context() instanceof PresetBrowserContext)) {
+            return;
+        }
+        int page = holder.request().page();
+        String search = holder.request().filter();
+        switch (click.action()) {
+            case ENTRY -> {
+                if (click.entryId() != null) {
+                    openPresetEdit(player, click.entryId(), page, search);
+                }
+            }
+            case ADD -> startPrompt(player, new Prompt(PromptType.ADD_PRESET, null, page, search), Map.of());
+            case SEARCH -> startPrompt(player, new Prompt(PromptType.SEARCH, null, page, search), Map.of());
+            case CLEAR_SEARCH -> {
+                plugin.messages().send(player, "search-cleared");
+                openPresetBrowser(player, 0, "");
+            }
+            case PREVIOUS_PAGE -> openPresetBrowser(player, page - 1, search);
+            case NEXT_PAGE -> openPresetBrowser(player, page + 1, search);
+            case BACK -> openMain(player);
+            case EXTRA, NONE -> {
+            }
         }
     }
 
@@ -472,36 +507,6 @@ public final class EditorManager implements Listener {
                     Map.of("world", click.displayName()));
         }
         openWorldSelector(player, click.nextRequest().page(), click.nextRequest().filter());
-    }
-
-    private void clickBrowser(Player player, EditorView view, int slot) {
-        List<Integer> slots = entrySlots();
-        int entryIndex = slots.indexOf(slot);
-        if (entryIndex >= 0) {
-            int presetIndex = view.page() * Math.max(1, slots.size()) + entryIndex;
-            List<JumpPadPreset> presets = filteredPresets(view.search());
-            if (presetIndex < presets.size()) {
-                openPresetEdit(player, presets.get(presetIndex).id(), view.page(), view.search());
-            }
-            return;
-        }
-        int pages = Math.max(1, (int) Math.ceil(filteredPresets(view.search()).size() / (double) Math.max(1, slots.size())));
-        if (slot == configuredSlot("preset-browser.items.add", 47)) {
-            startPrompt(player, new Prompt(PromptType.ADD_PRESET, null, view.page(), view.search()),
-                    Map.of());
-        } else if (slot == searchSlot(plugin.guiConfig().size("preset-browser", 54))) {
-            startPrompt(player, new Prompt(PromptType.SEARCH, null, view.page(), view.search()),
-                    Map.of());
-        } else if (slot == clearSearchSlot(plugin.guiConfig().size("preset-browser", 54)) && !view.search().isBlank()) {
-            plugin.messages().send(player, "search-cleared");
-            openPresetBrowser(player, 0, "");
-        } else if (slot == configuredSlot("preset-browser.items.previous", 45) && view.page() > 0) {
-            openPresetBrowser(player, view.page() - 1, view.search());
-        } else if (slot == configuredSlot("preset-browser.items.next", 53) && view.page() < pages - 1) {
-            openPresetBrowser(player, view.page() + 1, view.search());
-        } else if (slot == backSlot(plugin.guiConfig().size("preset-browser", 54))) {
-            openMain(player);
-        }
     }
 
     private void clickEdit(Player player, EditorView view, int slot, ItemStack cursor) {
@@ -952,14 +957,6 @@ public final class EditorManager implements Listener {
                 .toList();
     }
 
-    private List<Integer> entrySlots() {
-        List<Integer> slots = new ArrayList<>(plugin.guiConfig().intList("preset-browser.entry-slots"));
-        if (slots.isEmpty()) {
-            slots.addAll(DEFAULT_ENTRY_SLOTS);
-        }
-        return slots;
-    }
-
     private List<Integer> selectorEntrySlots(String path) {
         List<Integer> slots = new ArrayList<>(plugin.guiConfig().intList(path + ".entry-slots"));
         if (slots.isEmpty()) {
@@ -968,10 +965,7 @@ public final class EditorManager implements Listener {
         return slots;
     }
 
-    private void setEntry(Inventory inventory, int slot, JumpPadPreset preset) {
-        if (!validSlot(inventory, slot)) {
-            return;
-        }
+    private ItemStack presetEntryItem(JumpPadPreset preset) {
         Map<String, String> placeholders = preset.placeholders(plugin.messages());
         ItemStack item = new ItemStack(preset.material());
         ItemMeta meta = item.getItemMeta();
@@ -991,7 +985,13 @@ public final class EditorManager implements Listener {
             meta.addItemFlags(ItemFlag.HIDE_ATTRIBUTES);
             item.setItemMeta(meta);
         }
-        inventory.setItem(slot, item);
+        return item;
+    }
+
+    private ItemStack presetAddButton() {
+        ItemStack item = plugin.guiConfig().item("preset-browser.items.add", Map.of());
+        item.setType(Material.ANVIL);
+        return item;
     }
 
     private void setValueEntry(Inventory inventory, int slot, String path, String value, boolean selected) {
@@ -1049,14 +1049,6 @@ public final class EditorManager implements Listener {
         return values.stream()
                 .map(value -> plugin.messages().renderTemplate(value, placeholders))
                 .toList();
-    }
-
-    private Map<String, String> browserPlaceholders(int page, int pages, String search) {
-        Map<String, String> placeholders = new LinkedHashMap<>();
-        placeholders.put("page", String.valueOf(page + 1));
-        placeholders.put("pages", String.valueOf(pages));
-        placeholders.put("search", search == null || search.isBlank() ? "none" : search);
-        return placeholders;
     }
 
     private Map<String, String> selectorPlaceholders(JumpPadPreset preset, int page, int pages) {
@@ -1207,5 +1199,8 @@ public final class EditorManager implements Listener {
         private Prompt(PromptType type, String presetId, int page, String search) {
             this(type, presetId, page, search, search);
         }
+    }
+
+    private record PresetBrowserContext() {
     }
 }
