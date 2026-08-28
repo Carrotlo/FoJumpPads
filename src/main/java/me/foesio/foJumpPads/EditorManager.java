@@ -81,6 +81,10 @@ public final class EditorManager implements Listener {
     }
 
     public void openMain(Player player) {
+        openMain(player, true);
+    }
+
+    private void openMain(Player player, boolean playSound) {
         Inventory inventory = Bukkit.createInventory(player,
                 plugin.guiConfig().size("main", 27),
                 plugin.guiConfig().title("main", Map.of()));
@@ -88,6 +92,9 @@ public final class EditorManager implements Listener {
         setButton(inventory, "main.items.settings", Map.of());
         setButton(inventory, "main.items.presets", Map.of());
         open(player, inventory, new EditorView(ViewType.MAIN, null, 0, ""));
+        if (playSound) {
+            plugin.editorSounds().open(player);
+        }
     }
 
     private void openSettings(Player player) {
@@ -188,7 +195,7 @@ public final class EditorManager implements Listener {
             return;
         }
         openValueSelector(player, preset, SOUND_VALUES, selectorEntrySlots("sound-selector"), page, selectorSearch,
-                "sound-selector", ViewType.SOUND_SELECTOR, preset.sound() == null ? "none" : preset.sound().name(), parentSearch);
+                "sound-selector", ViewType.SOUND_SELECTOR, preset.sound() == null ? "none" : preset.sound(), parentSearch);
     }
 
     private void openParticleSelector(Player player, String presetId, int page, String search) {
@@ -335,17 +342,31 @@ public final class EditorManager implements Listener {
             case ENTRY -> {
                 if (click.entryId() != null) {
                     openPresetEdit(player, click.entryId(), page, search);
+                    plugin.editorSounds().open(player);
                 }
             }
             case ADD -> startPrompt(player, new Prompt(PromptType.ADD_PRESET, null, page, search), Map.of());
-            case SEARCH -> startPrompt(player, new Prompt(PromptType.SEARCH, null, page, search), Map.of());
+            case SEARCH -> {
+                plugin.editorSounds().search(player);
+                startPrompt(player, new Prompt(PromptType.SEARCH, null, page, search), Map.of());
+            }
             case CLEAR_SEARCH -> {
+                plugin.editorSounds().clearSearch(player);
                 plugin.messages().send(player, "search-cleared");
                 openPresetBrowser(player, 0, "");
             }
-            case PREVIOUS_PAGE -> openPresetBrowser(player, page - 1, search);
-            case NEXT_PAGE -> openPresetBrowser(player, page + 1, search);
-            case BACK -> openMain(player);
+            case PREVIOUS_PAGE -> {
+                plugin.editorSounds().previousPage(player);
+                openPresetBrowser(player, page - 1, search);
+            }
+            case NEXT_PAGE -> {
+                plugin.editorSounds().nextPage(player);
+                openPresetBrowser(player, page + 1, search);
+            }
+            case BACK -> {
+                plugin.editorSounds().back(player);
+                openMain(player, false);
+            }
             case EXTRA, NONE -> {
             }
         }
@@ -406,8 +427,10 @@ public final class EditorManager implements Listener {
     private void clickMain(Player player, int slot) {
         if (slot == configuredSlot("main.items.settings", 11)) {
             openSettings(player);
+            plugin.editorSounds().open(player);
         } else if (slot == configuredSlot("main.items.presets", 15)) {
             openPresetBrowser(player, 0, "");
+            plugin.editorSounds().open(player);
         }
     }
 
@@ -421,12 +444,16 @@ public final class EditorManager implements Listener {
         } else if (slot == configuredSlot("settings.items.drop-on-break", 14)) {
             boolean next = !plugin.getConfig().getBoolean("settings.drop-preset-item-on-break", true);
             plugin.getConfig().set("settings.drop-preset-item-on-break", next);
-            saveAndReload(player, "Drop Item On Break", next ? "Enabled" : "Disabled");
+            if (saveAndReload(player, "Drop Item On Break", next ? "Enabled" : "Disabled")) {
+                plugin.editorSounds().toggle(player, next);
+            }
             openSettings(player);
         } else if (slot == configuredSlot("settings.items.disabled-worlds", 16)) {
             openWorldSelector(player, 0);
+            plugin.editorSounds().open(player);
         } else if (slot == backSlot(plugin.guiConfig().size("settings", 36))) {
-            openMain(player);
+            plugin.editorSounds().back(player);
+            openMain(player, false);
         }
     }
 
@@ -446,19 +473,27 @@ public final class EditorManager implements Listener {
             return;
         }
         if (click.action() == TriStateSelectionActionType.BACK) {
+            plugin.editorSounds().back(player);
             openSettings(player);
             return;
         }
         if (click.action() == TriStateSelectionActionType.PREVIOUS_PAGE
                 || click.action() == TriStateSelectionActionType.NEXT_PAGE) {
+            if (click.action() == TriStateSelectionActionType.PREVIOUS_PAGE) {
+                plugin.editorSounds().previousPage(player);
+            } else {
+                plugin.editorSounds().nextPage(player);
+            }
             openWorldSelector(player, click.nextRequest().page(), click.nextRequest().filter());
             return;
         }
         if (click.action() == TriStateSelectionActionType.SEARCH) {
+            plugin.editorSounds().search(player);
             startPrompt(player, new Prompt(PromptType.WORLD_SEARCH, null, click.page(), click.filter()), Map.of());
             return;
         }
         if (click.action() == TriStateSelectionActionType.CLEAR_SEARCH) {
+            plugin.editorSounds().clearSearch(player);
             plugin.messages().send(player, "search-cleared");
             openWorldSelector(player, 0, "");
             return;
@@ -502,6 +537,7 @@ public final class EditorManager implements Listener {
         List<String> disabledWorlds = TriStateSelections.disabledKeys(click.nextRequest());
         plugin.getConfig().set("settings.disabled-worlds", disabledWorlds);
         if (saveAndReload(player, "World", click.displayName(), false)) {
+            plugin.editorSounds().cycle(player);
             plugin.messages().send(player,
                     click.newState() == TriStateSelectionState.DISABLED ? "world-disabled" : "world-enabled",
                     Map.of("world", click.displayName()));
@@ -517,11 +553,16 @@ public final class EditorManager implements Listener {
             return;
         }
         if (slot == configuredSlot("preset-edit.items.enabled", 10)) {
-            setValue(player, preset.id(), "enabled", !preset.enabled(), "Enabled", !preset.enabled() ? "Enabled" : "Disabled");
+            boolean next = !preset.enabled();
+            if (setValue(player, preset.id(), "enabled", next, "Enabled", next ? "Enabled" : "Disabled")) {
+                plugin.editorSounds().toggle(player, next);
+            }
             openPresetEdit(player, preset.id(), view.page(), view.search());
         } else if (slot == configuredSlot("preset-edit.items.direction", 12)) {
             DirectionMode next = preset.directionMode().next();
-            setValue(player, preset.id(), "direction-mode", next.name(), "Direction Mode", next.displayName());
+            if (setValue(player, preset.id(), "direction-mode", next.name(), "Direction Mode", next.displayName())) {
+                plugin.editorSounds().cycle(player);
+            }
             openPresetEdit(player, preset.id(), view.page(), view.search());
         } else if (slot == configuredSlot("preset-edit.items.horizontal", 14)) {
             startNumberPrompt(player, PromptType.HORIZONTAL, preset.id(), view, "horizontal launch", "0", "5");
@@ -531,17 +572,23 @@ public final class EditorManager implements Listener {
             startNumberPrompt(player, PromptType.COOLDOWN, preset.id(), view, "cooldown ticks", "0", "200");
         } else if (slot == configuredSlot("preset-edit.items.sound", 22)) {
             openSoundSelector(player, preset.id(), 0, view.search());
+            plugin.editorSounds().open(player);
         } else if (slot == configuredSlot("preset-edit.items.particle", 24)) {
             openParticleSelector(player, preset.id(), 0, view.search());
+            plugin.editorSounds().open(player);
         } else if (slot == configuredSlot("preset-edit.items.path-lock", 28)) {
             boolean next = !preset.pathLock();
-            setValue(player, preset.id(), "path-lock", next, "Path Lock", next ? "Enabled" : "Disabled");
+            if (setValue(player, preset.id(), "path-lock", next, "Path Lock", next ? "Enabled" : "Disabled")) {
+                plugin.editorSounds().toggle(player, next);
+            }
             openPresetEdit(player, preset.id(), view.page(), view.search());
         } else if (slot == configuredSlot("preset-edit.items.item", 31)) {
             copyCursorItem(player, preset.id(), cursor, view);
         } else if (slot == configuredSlot("preset-edit.items.delete", 40)) {
             openConfirmDelete(player, view);
+            plugin.editorSounds().open(player);
         } else if (slot == backSlot(plugin.guiConfig().size("preset-edit", 54))) {
+            plugin.editorSounds().back(player);
             openPresetBrowser(player, view.page(), view.search());
         }
     }
@@ -562,7 +609,9 @@ public final class EditorManager implements Listener {
             int valueIndex = view.page() * Math.max(1, slots.size()) + entryIndex;
             if (valueIndex < filteredValues.size()) {
                 String value = filteredValues.get(valueIndex);
-                setValue(player, view.presetId(), configKey, value, configKey.equals("sound") ? "Sound" : "Particle", value);
+                if (setValue(player, view.presetId(), configKey, value, configKey.equals("sound") ? "Sound" : "Particle", value)) {
+                    plugin.editorSounds().cycle(player);
+                }
                 openPresetEdit(player, view.presetId(), 0, view.parentSearch());
             }
             return;
@@ -570,16 +619,21 @@ public final class EditorManager implements Listener {
         int size = plugin.guiConfig().size(path, 54);
         int pages = Math.max(1, (int) Math.ceil(filteredValues.size() / (double) Math.max(1, slots.size())));
         if (slot == configuredSlot(path + ".items.previous", 45) && view.page() > 0) {
+            plugin.editorSounds().previousPage(player);
             openSelectorByType(player, view, view.page() - 1);
         } else if (slot == configuredSlot(path + ".items.next", 53) && view.page() < pages - 1) {
+            plugin.editorSounds().nextPage(player);
             openSelectorByType(player, view, view.page() + 1);
         } else if (slot == searchSlot(size)) {
+            plugin.editorSounds().search(player);
             PromptType searchType = path.equals("sound-selector") ? PromptType.SOUND_SEARCH : PromptType.PARTICLE_SEARCH;
             startPrompt(player, new Prompt(searchType, view.presetId(), view.page(), view.search(), view.parentSearch()), Map.of());
         } else if (slot == clearSearchSlot(size) && !view.search().isBlank()) {
+            plugin.editorSounds().clearSearch(player);
             plugin.messages().send(player, "search-cleared");
             openSelectorByType(player, new EditorView(view.type(), view.presetId(), 0, "", view.parentSearch()), 0);
         } else if (slot == backSlot(size)) {
+            plugin.editorSounds().back(player);
             openPresetEdit(player, view.presetId(), 0, view.parentSearch());
         }
     }
@@ -601,10 +655,12 @@ public final class EditorManager implements Listener {
             }
             plugin.getConfig().set("presets." + view.presetId(), null);
             if (saveAndReload(player, "Preset", view.presetId(), false)) {
+                plugin.editorSounds().delete(player);
                 plugin.messages().send(player, "preset-deleted", Map.of("preset", view.presetId()));
             }
             openPresetBrowser(player, view.page(), view.search());
         } else if (slot == configuredSlot("confirm-delete.items.cancel", 15)) {
+            plugin.editorSounds().back(player);
             openPresetEdit(player, view.presetId(), view.page(), view.search());
         }
     }
@@ -633,6 +689,7 @@ public final class EditorManager implements Listener {
                 startChatPrompt(player, prompt, request);
                 return;
             }
+            plugin.editorSounds().open(player);
             plugin.warnNativeDialogFallback(player);
         } catch (Throwable throwable) {
             plugin.core().inventoryCloseSuppressor().clear(player);
@@ -663,6 +720,7 @@ public final class EditorManager implements Listener {
         }
         String normalized = PromptNormalizer.normalize(input);
         if (PromptNormalizer.isCancel(input)) {
+            plugin.editorSounds().back(player);
             plugin.messages().send(player, "prompt-cancelled");
             returnToPromptSource(player, prompt);
             return;
@@ -682,6 +740,7 @@ public final class EditorManager implements Listener {
     }
 
     private void cancelPrompt(Player player, Prompt prompt) {
+        plugin.editorSounds().back(player);
         plugin.messages().send(player, "prompt-cancelled");
         returnToPromptSource(player, prompt);
     }
@@ -709,9 +768,17 @@ public final class EditorManager implements Listener {
         section.set("path-lock", false);
         section.set("cooldown-ticks", plugin.getConfig().getInt("settings.global-cooldown-ticks", 10));
         section.set("fall-damage-immunity-ticks", plugin.getConfig().getInt("settings.fall-damage-immunity-ticks", 80));
-        section.set("sound", "ENTITY_FIREWORK_ROCKET_LAUNCH");
         section.set("particle", "CLOUD");
+        plugin.sounds().setDefinition(
+                "jump-pad.presets." + id,
+                "ENTITY_FIREWORK_ROCKET_LAUNCH",
+                plugin.soundCategory(),
+                1.0f,
+                1.0f,
+                true
+        );
         if (saveAndReload(player, "Preset", id, false)) {
+            plugin.editorSounds().add(player);
             plugin.messages().send(player, "preset-added", Map.of("preset", id));
             openPresetEdit(player, id, prompt.page(), prompt.search());
         } else {
@@ -743,8 +810,8 @@ public final class EditorManager implements Listener {
         double value = parseFiniteDouble(input, Double.NaN);
         if (!Double.isFinite(value) || value < min || value > max) {
             invalidNumber(player, min, max);
-        } else {
-            setValue(player, prompt.presetId(), key, value, label, JumpPadPreset.format(value));
+        } else if (setValue(player, prompt.presetId(), key, value, label, JumpPadPreset.format(value))) {
+            plugin.editorSounds().save(player);
         }
         openPresetEdit(player, prompt.presetId(), prompt.page(), prompt.search());
     }
@@ -753,8 +820,8 @@ public final class EditorManager implements Listener {
         int value = parseInt(input, INVALID_INT);
         if (value < min || value > max) {
             invalidWholeNumber(player, min, max);
-        } else {
-            setValue(player, prompt.presetId(), key, value, label, String.valueOf(value));
+        } else if (setValue(player, prompt.presetId(), key, value, label, String.valueOf(value))) {
+            plugin.editorSounds().save(player);
         }
         openPresetEdit(player, prompt.presetId(), prompt.page(), prompt.search());
     }
@@ -767,7 +834,9 @@ public final class EditorManager implements Listener {
             return;
         }
         plugin.getConfig().set(path, value);
-        saveAndReload(player, label, String.valueOf(value));
+        if (saveAndReload(player, label, String.valueOf(value))) {
+            plugin.editorSounds().save(player);
+        }
         openSettings(player);
     }
 
@@ -791,12 +860,14 @@ public final class EditorManager implements Listener {
     }
 
     private void invalidNumber(Player player, double min, double max) {
+        plugin.sounds().play(player, "jump-pad.error");
         plugin.messages().send(player, "invalid-input", Map.of(
                 "hint", "Use a number from " + JumpPadPreset.format(min) + " to " + JumpPadPreset.format(max) + "."
         ));
     }
 
     private void invalidWholeNumber(Player player, int min, int max) {
+        plugin.sounds().play(player, "jump-pad.error");
         plugin.messages().send(player, "invalid-input", Map.of(
                 "hint", "Use a whole number from " + min + " to " + max + "."
         ));
@@ -805,6 +876,7 @@ public final class EditorManager implements Listener {
     private void copyCursorItem(Player player, String presetId, ItemStack cursor, EditorView view) {
         ItemStack item = CursorItemEditor.cloneInputItem(player, cursor).orElse(null);
         if (item == null || !item.getType().isBlock()) {
+            plugin.editorSounds().addItemError(player);
             plugin.messages().send(player, "item-invalid");
             openPresetEdit(player, presetId, view.page(), view.search());
             return;
@@ -824,14 +896,19 @@ public final class EditorManager implements Listener {
             plugin.getConfig().set(basePath + "custom-model-data", null);
         }
         if (saveAndReload(player, "Item", presetId, false)) {
+            plugin.editorSounds().addItem(player);
             plugin.messages().send(player, "item-saved", Map.of("preset", presetId));
         }
         openPresetEdit(player, presetId, view.page(), view.search());
     }
 
-    private void setValue(Player player, String presetId, String key, Object value, String label, String displayValue) {
-        plugin.getConfig().set("presets." + presetId + "." + key, value);
-        saveAndReload(player, label, displayValue);
+    private boolean setValue(Player player, String presetId, String key, Object value, String label, String displayValue) {
+        if (key.equals("sound")) {
+            plugin.setPresetSound(presetId, String.valueOf(value));
+        } else {
+            plugin.getConfig().set("presets." + presetId + "." + key, value);
+        }
+        return saveAndReload(player, label, displayValue);
     }
 
     private boolean saveAndReload(Player player, String setting, String value) {
@@ -841,6 +918,7 @@ public final class EditorManager implements Listener {
     private boolean saveAndReload(Player player, String setting, String value, boolean sendSuccess) {
         if (!plugin.saveMainConfig()) {
             plugin.reloadAll();
+            plugin.sounds().play(player, "jump-pad.error");
             plugin.messages().send(player, "setting-save-failed", Map.of("setting", setting));
             return false;
         }

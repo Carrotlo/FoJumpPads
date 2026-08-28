@@ -7,11 +7,20 @@ import me.foesio.core.message.FoMessageMigrations;
 import me.foesio.core.message.FoMessageService;
 import me.foesio.core.reload.FoReloadRegistry;
 import me.foesio.core.reload.FoReloadResult;
+import me.foesio.core.sound.FoAdminSounds;
+import me.foesio.core.sound.FoEditorSounds;
+import me.foesio.core.sound.FoSound;
+import me.foesio.core.sound.FoSoundMigrations;
+import me.foesio.core.sound.FoSoundService;
 import me.foesio.core.update.UpdateNoticeService;
 import org.bukkit.Bukkit;
 import org.bukkit.NamespacedKey;
+import org.bukkit.Sound;
+import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.entity.Player;
+import org.bukkit.SoundCategory;
 import org.bukkit.plugin.java.JavaPlugin;
+import org.bukkit.event.HandlerList;
 
 import java.io.File;
 import java.io.IOException;
@@ -34,6 +43,9 @@ public final class FoJumpPads extends JavaPlugin {
     private final Map<PadLocation, PadData> pads = new ConcurrentHashMap<>();
 
     private FoCoreContext core;
+    private FoSoundService sounds;
+    private FoAdminSounds adminSounds;
+    private FoEditorSounds editorSounds;
     private NamespacedKey presetKey;
     private FoMessageService messages;
     private GuiConfig guiConfig;
@@ -57,10 +69,10 @@ public final class FoJumpPads extends JavaPlugin {
         presetRegistry = new PresetRegistry(this);
         reloadRegistry = FoReloadRegistry.create()
                 .add("config", this::reloadConfigState)
+                .add("sounds", () -> sounds.reload())
                 .addMessages(messages)
                 .add("presets", presetRegistry::reload);
         reloadAll();
-        updates = core.createUpdateNotices(messages, MODRINTH_PROJECT_ID).start();
 
         try {
             padStorage = new PadStorage(this);
@@ -94,10 +106,21 @@ public final class FoJumpPads extends JavaPlugin {
             core.close();
             core = null;
         }
+        if (updates != null) {
+            HandlerList.unregisterAll(updates);
+        }
+        updates = null;
+        sounds = null;
+        adminSounds = null;
+        editorSounds = null;
     }
 
     public FoReloadResult reloadAll() {
-        return reloadRegistry.reload();
+        FoReloadResult result = reloadRegistry.reload();
+        if (result.successful() && updates == null && core != null) {
+            updates = core.createUpdateNotices(messages, MODRINTH_PROJECT_ID, adminSounds).start();
+        }
+        return result;
     }
 
     private void reloadConfigState() {
@@ -112,9 +135,33 @@ public final class FoJumpPads extends JavaPlugin {
         if (core != null) {
             core.close();
         }
+        if (updates != null) {
+            HandlerList.unregisterAll(updates);
+            updates = null;
+        }
         core = FoPluginCore.create(this);
+        sounds = core.createSounds(FoSoundMigrations.create()
+                .add(service -> migrateLegacyPresetSounds(service))
+                .build());
+        adminSounds = FoAdminSounds.create(sounds);
+        editorSounds = FoEditorSounds.create(sounds);
         core.metrics(BSTATS_PLUGIN_ID);
         core.warnIfNativeDialogsUnavailable();
+    }
+
+    private boolean migrateLegacyPresetSounds(FoSoundService service) {
+        ConfigurationSection presets = getConfig().getConfigurationSection("presets");
+        if (presets == null) {
+            return false;
+        }
+
+        boolean changed = false;
+        for (String presetId : presets.getKeys(false)) {
+            String sourcePath = "presets." + presetId + ".sound";
+            String targetPath = "jump-pad.presets." + presetId.toLowerCase(Locale.ROOT);
+            changed |= service.moveFromConfig(sourcePath, targetPath);
+        }
+        return changed;
     }
 
     private void loadRuntimeSettings() {
@@ -167,6 +214,42 @@ public final class FoJumpPads extends JavaPlugin {
 
     public UpdateNoticeService updates() {
         return updates;
+    }
+
+    public FoSoundService sounds() {
+        return sounds;
+    }
+
+    public FoAdminSounds adminSounds() {
+        return adminSounds;
+    }
+
+    public FoEditorSounds editorSounds() {
+        return editorSounds;
+    }
+
+    public SoundCategory soundCategory() {
+        return SoundCategory.PLAYERS;
+    }
+
+    public Sound presetSound(String presetId, String legacyFallback) {
+        String path = "jump-pad.presets." + presetId.toLowerCase(Locale.ROOT);
+        String soundKey = sounds.find(path).map(FoSound::soundKey).orElse(legacyFallback);
+        return me.foesio.core.sound.SoundTypes.resolve(soundKey).orElse(null);
+    }
+
+    public String presetSoundName(String presetId, String legacyFallback) {
+        String configured = presetSoundKey(presetId, legacyFallback);
+        return me.foesio.core.sound.SoundTypes.resolve(configured).map(Sound::name).orElse(configured);
+    }
+
+    public String presetSoundKey(String presetId, String legacyFallback) {
+        String path = "jump-pad.presets." + presetId.toLowerCase(Locale.ROOT);
+        return sounds.find(path).map(FoSound::soundKey).orElse(legacyFallback);
+    }
+
+    public boolean setPresetSound(String presetId, String soundKey) {
+        return sounds.setSoundKey("jump-pad.presets." + presetId.toLowerCase(Locale.ROOT), soundKey);
     }
 
     public FoCoreContext core() {

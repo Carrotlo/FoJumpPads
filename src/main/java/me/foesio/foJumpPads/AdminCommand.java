@@ -46,6 +46,7 @@ public final class AdminCommand {
         FoAdminCommand.builder(plugin, plugin.messages())
                 .commandName("fojumppadsadmin")
                 .permission(FoJumpPads.ADMIN_PERMISSION)
+                .adminSounds(plugin.adminSounds())
                 .adminMessages(adminMessages())
                 .versionCommand(false)
                 .addSubcommand(versionSubcommand())
@@ -127,12 +128,18 @@ public final class AdminCommand {
         FoReloadResult result = plugin.reloadAll();
         if (result.successful()) {
             plugin.messages().send(sender, "reload-success");
+            if (sender instanceof Player player) {
+                plugin.adminSounds().reload(player);
+            }
             return;
         }
         plugin.messages().send(sender, "reload-failed", Map.of(
                 "step", result.failedStep(),
                 "error", result.errorMessage()
         ));
+        if (sender instanceof Player player) {
+            plugin.adminSounds().reloadError(player);
+        }
     }
 
     private void give(CommandSender sender, String label, String[] args) {
@@ -143,11 +150,13 @@ public final class AdminCommand {
         Player target = ONLINE_PLAYER.parse(args[1]).orElse(null);
         if (target == null) {
             plugin.messages().send(sender, "player-not-found", Map.of("player", args[1]));
+            plugin.adminSounds().updateError(sender);
             return;
         }
         JumpPadPreset preset = plugin.presets().get(args[2]);
         if (preset == null) {
             plugin.messages().send(sender, "preset-not-found", Map.of("preset", args[2]));
+            plugin.adminSounds().updateError(sender);
             return;
         }
         int amount = 1;
@@ -156,6 +165,7 @@ public final class AdminCommand {
         }
         if (amount < 1 || amount > 64) {
             plugin.messages().send(sender, "amount-invalid");
+            plugin.adminSounds().updateError(sender);
             return;
         }
         ItemStack item = preset.createItem(plugin, amount);
@@ -211,12 +221,14 @@ public final class AdminCommand {
         PadEntry entry = padByIndex(args[1]);
         if (entry == null) {
             plugin.messages().send(sender, "pad-id-invalid", Map.of("id", args[1]));
+            plugin.adminSounds().updateError(sender);
             return;
         }
         World world = Bukkit.getWorld(entry.location().world());
         if (world == null || !isBlockStillPad(world, entry)) {
             prunePad(entry.location());
             plugin.messages().send(sender, "pad-id-invalid", Map.of("id", args[1]));
+            plugin.adminSounds().updateError(sender);
             return;
         }
         Location target = new Location(world,
@@ -296,6 +308,7 @@ public final class AdminCommand {
         double radius = parseDouble(args[2], -1D);
         if (radius < 1D || radius > 500D) {
             plugin.messages().send(sender, "invalid-input", Map.of("hint", "Use a radius from 1 to 500."));
+            plugin.adminSounds().updateError(sender);
             return null;
         }
         double radiusSquared = radius * radius;
@@ -353,6 +366,7 @@ public final class AdminCommand {
 
     private void syntax(CommandSender sender, String label, String usage) {
         plugin.messages().send(sender, "syntax", Map.of("usage", "/" + label + " " + usage));
+        plugin.adminSounds().updateError(sender);
     }
 
     private List<PadEntry> sortedPads() {

@@ -12,7 +12,6 @@ commands:
     description: FoJumpPads admin command.
     usage: /fojumppadsadmin <version|reload|give|list|teleport|remove|editor>
     aliases: [ jumppadsadmin ]
-    permission: fojumppads.admin
 
 permissions:
   fojumppads.admin:

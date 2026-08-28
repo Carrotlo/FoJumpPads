@@ -3,10 +3,8 @@ package me.foesio.foJumpPads;
 import me.foesio.core.message.FoMessageService;
 import me.foesio.core.material.MaterialTypes;
 import me.foesio.core.number.NumberFormatters;
-import me.foesio.core.sound.SoundTypes;
 import org.bukkit.Material;
 import org.bukkit.Particle;
-import org.bukkit.Sound;
 import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.inventory.ItemFlag;
 import org.bukkit.inventory.ItemStack;
@@ -31,14 +29,14 @@ public record JumpPadPreset(
         int fallDamageImmunityTicks,
         DirectionMode directionMode,
         boolean pathLock,
-        Sound sound,
+        String sound,
         Particle particle,
         Integer customModelData
 ) {
 
     public static JumpPadPreset from(FoJumpPads plugin, String id, ConfigurationSection section) {
         Material material = parseMaterial(plugin, section.getString("material", "LIGHT_WEIGHTED_PRESSURE_PLATE"));
-        Sound sound = parseSound(plugin, section.getString("sound", "ENTITY_FIREWORK_ROCKET_LAUNCH"));
+        String sound = plugin.presetSoundName(id, section.getString("sound", "ENTITY_FIREWORK_ROCKET_LAUNCH"));
         Particle particle = parseEnum(plugin, Particle.class, section.getString("particle", "CLOUD"), "particle");
         Integer customModelData = section.isInt("custom-model-data") ? section.getInt("custom-model-data") : null;
         return new JumpPadPreset(
@@ -86,7 +84,7 @@ public record JumpPadPreset(
         placeholders.put("cooldown", String.valueOf(cooldownTicks));
         placeholders.put("direction", directionMode.displayName());
         placeholders.put("path_lock", status(messages, pathLock));
-        placeholders.put("sound", sound == null ? "none" : sound.name());
+        placeholders.put("sound", sound == null || sound.isBlank() ? "none" : sound);
         placeholders.put("particle", particle == null ? "none" : particle.name());
         placeholders.put("enabled", status(messages, enabled));
         return placeholders;
@@ -115,16 +113,6 @@ public record JumpPadPreset(
             plugin.logWarn("Invalid preset " + label + " '" + value + "'.");
             return null;
         }
-    }
-
-    private static Sound parseSound(FoJumpPads plugin, String value) {
-        if (value == null || value.isBlank()) {
-            return null;
-        }
-        return SoundTypes.resolve(value).orElseGet(() -> {
-            plugin.logWarn("Invalid preset sound '" + value + "'.");
-            return null;
-        });
     }
 
     private static String status(FoMessageService messages, boolean enabled) {

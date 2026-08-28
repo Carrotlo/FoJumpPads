@@ -26,7 +26,6 @@ presets:
     path-lock: false
     cooldown-ticks: 10
     fall-damage-immunity-ticks: 80
-    sound: ENTITY_FIREWORK_ROCKET_LAUNCH
     particle: CLOUD
   high:
     enabled: true
@@ -41,7 +40,6 @@ presets:
     path-lock: false
     cooldown-ticks: 12
     fall-damage-immunity-ticks: 100
-    sound: ENTITY_BREEZE_JUMP
     particle: POOF
   forward:
     enabled: true
@@ -56,5 +54,4 @@ presets:
     path-lock: false
     cooldown-ticks: 10
     fall-damage-immunity-ticks: 80
-    sound: ENTITY_FIREWORK_ROCKET_LAUNCH
     particle: FIREWORK

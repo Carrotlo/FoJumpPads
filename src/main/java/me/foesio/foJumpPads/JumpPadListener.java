@@ -191,9 +191,11 @@ public final class JumpPadListener implements Listener {
         direction.setY(preset.verticalVelocity());
         player.setVelocity(direction);
         startPathLock(player, preset, direction);
-        if (preset.sound() != null) {
-            player.getWorld().playSound(player.getLocation(), preset.sound(), 1.0F, 1.0F);
-        }
+        plugin.sounds().playWithPitchVariation(
+                player,
+                "jump-pad.presets." + preset.id(),
+                0.04f
+        );
         if (preset.particle() != null) {
             player.getWorld().spawnParticle(preset.particle(), player.getLocation().add(0, 0.2, 0), 18, 0.35, 0.2, 0.35, 0.01);
         }
