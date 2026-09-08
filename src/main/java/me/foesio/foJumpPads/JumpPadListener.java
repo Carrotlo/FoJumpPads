@@ -94,7 +94,7 @@ public final class JumpPadListener implements Listener {
         }
         event.setDropItems(false);
         event.getBlock().getWorld().dropItemNaturally(event.getBlock().getLocation().add(0.5, 0.5, 0.5),
-                preset.createItem(plugin, 1));
+                preset.createItem(plugin, event.getPlayer(), 1));
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)

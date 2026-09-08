@@ -3,12 +3,14 @@ package me.foesio.foJumpPads;
 import me.foesio.core.message.FoMessageService;
 import me.foesio.core.material.MaterialTypes;
 import me.foesio.core.number.NumberFormatters;
+import me.foesio.core.dialog.DialogIcons;
 import org.bukkit.Material;
 import org.bukkit.Particle;
 import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.inventory.ItemFlag;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
+import org.bukkit.entity.Player;
 import org.bukkit.persistence.PersistentDataType;
 
 import java.math.BigDecimal;
@@ -31,7 +33,8 @@ public record JumpPadPreset(
         boolean pathLock,
         String sound,
         Particle particle,
-        Integer customModelData
+        Integer customModelData,
+        String serializedItem
 ) {
 
     public static JumpPadPreset from(FoJumpPads plugin, String id, ConfigurationSection section) {
@@ -53,27 +56,58 @@ public record JumpPadPreset(
                 section.getBoolean("path-lock", false),
                 sound,
                 particle,
-                customModelData
+                customModelData,
+                section.getString("item-stack")
         );
     }
 
     public ItemStack createItem(FoJumpPads plugin, int amount) {
-        ItemStack item = new ItemStack(material, amount);
+        return createItem(plugin, null, amount);
+    }
+
+    public ItemStack createItem(FoJumpPads plugin, Player viewer, int amount) {
+        ItemStack item = deserializeItem(serializedItem);
+        if (item == null) {
+            item = new ItemStack(material, amount);
+        } else {
+            item.setAmount(amount);
+        }
         ItemMeta meta = item.getItemMeta();
         if (meta != null) {
             Map<String, String> placeholders = placeholders(plugin.messages());
-            meta.setDisplayName(plugin.messages().renderTemplate(displayName, placeholders));
-            meta.setLore(lore.stream()
-                    .map(line -> plugin.messages().renderTemplate(line, placeholders))
-                    .toList());
+            if (serializedItem == null || serializedItem.isBlank()) {
+                String renderedName = viewer == null
+                        ? plugin.messages().renderTemplate(displayName, placeholders)
+                        : plugin.messages().renderTemplateForViewer(viewer, displayName, placeholders);
+                List<String> renderedLore = lore.stream()
+                        .map(line -> viewer == null
+                                ? plugin.messages().renderTemplate(line, placeholders)
+                                : plugin.messages().renderTemplateForViewer(viewer, line, placeholders))
+                        .toList();
+                if (!DialogIcons.applyItemMeta(meta, viewer, renderedName, renderedLore)) {
+                    meta.setDisplayName(DialogIcons.fallbackText(renderedName));
+                    meta.setLore(renderedLore.stream().map(DialogIcons::fallbackText).toList());
+                }
+            }
             meta.getPersistentDataContainer().set(plugin.presetKey(), PersistentDataType.STRING, id);
-            if (customModelData != null) {
+            if (serializedItem == null && customModelData != null) {
                 meta.setCustomModelData(customModelData);
             }
             meta.addItemFlags(ItemFlag.HIDE_ATTRIBUTES);
             item.setItemMeta(meta);
         }
         return item;
+    }
+
+    private static ItemStack deserializeItem(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        try {
+            return me.foesio.core.editor.CursorItemEditor.deserializeBase64(value);
+        } catch (RuntimeException exception) {
+            return null;
+        }
     }
 
     public Map<String, String> placeholders(FoMessageService messages) {

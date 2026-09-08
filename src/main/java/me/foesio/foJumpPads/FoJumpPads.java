@@ -73,6 +73,7 @@ public final class FoJumpPads extends JavaPlugin {
                 .addMessages(messages)
                 .add("presets", presetRegistry::reload);
         reloadAll();
+        migrateSprites();
 
         try {
             padStorage = new PadStorage(this);
@@ -121,6 +122,27 @@ public final class FoJumpPads extends JavaPlugin {
             updates = core.createUpdateNotices(messages, MODRINTH_PROJECT_ID, adminSounds).start();
         }
         return result;
+    }
+
+    private void migrateSprites() {
+        messages.migrateToVersion(core.migrations(), 1, config -> {
+            boolean changed = false;
+            changed |= FoMessageService.addMissingToken(config, "tokens.prefix", ":slime_block:", null);
+            changed |= FoMessageService.addMissingToken(config, "reload-success", ":emerald:");
+            changed |= FoMessageService.addMissingToken(config, "reload-failed", ":redstone:");
+            changed |= FoMessageService.addMissingToken(config, "give-success", ":emerald:");
+            changed |= FoMessageService.addMissingToken(config, "give-received", ":emerald:");
+            changed |= FoMessageService.addMissingToken(config, "pad-saved", ":slime_block:");
+            changed |= FoMessageService.addMissingToken(config, "pad-save-failed", ":redstone:");
+            changed |= FoMessageService.addMissingToken(config, "pad-removed", ":lava_bucket:");
+            changed |= FoMessageService.addMissingToken(config, "pad-teleport-success", ":ender_pearl:");
+            changed |= FoMessageService.addMissingToken(config, "editor-opened", ":book:");
+            changed |= FoMessageService.addMissingToken(config, "setting-saved", ":emerald:");
+            changed |= FoMessageService.addMissingToken(config, "setting-save-failed", ":redstone:");
+            changed |= FoMessageService.addMissingToken(config, "preset-added", ":emerald:");
+            changed |= FoMessageService.addMissingToken(config, "preset-deleted", ":lava_bucket:");
+            return true;
+        });
     }
 
     private void reloadConfigState() {
@@ -295,7 +317,7 @@ public final class FoJumpPads extends JavaPlugin {
     public void warnNativeDialogFallback(Player player, boolean force) {
         if (!core.nativeDialogs().configEnabled()
                 || !core.nativeDialogs().warnOnFallback()
-                || (!force && core.nativeDialogs().canUseNativeDialogs())) {
+                || (!force && core.nativeDialogs().canUseNativeDialogs(player))) {
             return;
         }
         if (nativeDialogWarnedPlayers.add(player.getUniqueId())) {

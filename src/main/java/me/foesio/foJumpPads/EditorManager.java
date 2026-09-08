@@ -89,8 +89,8 @@ public final class EditorManager implements Listener {
                 plugin.guiConfig().size("main", 27),
                 plugin.guiConfig().title("main", Map.of()));
         plugin.guiConfig().fill(inventory);
-        setButton(inventory, "main.items.settings", Map.of());
-        setButton(inventory, "main.items.presets", Map.of());
+        setButton(player, inventory, "main.items.settings", Map.of());
+        setButton(player, inventory, "main.items.presets", Map.of());
         open(player, inventory, new EditorView(ViewType.MAIN, null, 0, ""));
         if (playSound) {
             plugin.editorSounds().open(player);
@@ -103,11 +103,11 @@ public final class EditorManager implements Listener {
                 plugin.guiConfig().size("settings", 36),
                 plugin.guiConfig().title("settings", placeholders));
         plugin.guiConfig().fill(inventory);
-        setButton(inventory, "settings.items.global-cooldown", placeholders);
-        setButton(inventory, "settings.items.fall-immunity", placeholders);
-        setButton(inventory, "settings.items.drop-on-break", placeholders);
-        setSharedButton(inventory, "settings.items.disabled-worlds", worldsButton());
-        setBackButton(inventory);
+        setButton(player, inventory, "settings.items.global-cooldown", placeholders);
+        setButton(player, inventory, "settings.items.fall-immunity", placeholders);
+        setButton(player, inventory, "settings.items.drop-on-break", placeholders);
+        setSharedButton(player, inventory, "settings.items.disabled-worlds", worldsButton(player));
+        setBackButton(player, inventory);
         open(player, inventory, new EditorView(ViewType.SETTINGS, null, 0, ""));
     }
 
@@ -117,7 +117,7 @@ public final class EditorManager implements Listener {
 
     private void openWorldSelector(Player player, int page, String search) {
         TriStateSelectionRequest request = worldSelectorRequest(page, search);
-        Inventory inventory = TriStateSelectionMenus.createInventory(request);
+        Inventory inventory = TriStateSelectionMenus.createInventory(player, request);
         applyCoreSelectorLayout(inventory, request);
         UUID uuid = player.getUniqueId();
         opening.add(uuid);
@@ -134,7 +134,7 @@ public final class EditorManager implements Listener {
         String query = search == null ? "" : search;
         List<JumpPadPreset> presets = filteredPresets(query);
         List<EntryBrowserRequest.Entry> entries = presets.stream()
-                .map(preset -> EntryBrowserRequest.Entry.of(preset.id(), presetEntryItem(preset)))
+                .map(preset -> EntryBrowserRequest.Entry.of(preset.id(), presetEntryItem(player, preset)))
                 .toList();
         EntryBrowserRequest request = EntryBrowserRequest.builder()
                 .title(plugin.guiConfig().title("preset-browser", Map.of()))
@@ -143,7 +143,7 @@ public final class EditorManager implements Listener {
                 .filter(query)
                 .buttons(buttons)
                 .showBack(true)
-                .addButton(presetAddButton())
+                .addButton(presetAddButton(player))
                 .context(new PresetBrowserContext())
                 .build();
         UUID uuid = player.getUniqueId();
@@ -169,17 +169,17 @@ public final class EditorManager implements Listener {
                 plugin.guiConfig().size("preset-edit", 45),
                 plugin.guiConfig().title("preset-edit", placeholders));
         plugin.guiConfig().fill(inventory);
-        setButton(inventory, "preset-edit.items.enabled", placeholders);
-        setButton(inventory, "preset-edit.items.direction", placeholders);
-        setButton(inventory, "preset-edit.items.horizontal", placeholders);
-        setButton(inventory, "preset-edit.items.vertical", placeholders);
-        setButton(inventory, "preset-edit.items.cooldown", placeholders);
-        setButton(inventory, "preset-edit.items.sound", placeholders);
-        setButton(inventory, "preset-edit.items.particle", placeholders);
-        setButton(inventory, "preset-edit.items.path-lock", placeholders);
-        setPresetBlockButton(inventory, preset, placeholders);
-        setButton(inventory, "preset-edit.items.delete", placeholders);
-        setBackButton(inventory);
+        setButton(player, inventory, "preset-edit.items.enabled", placeholders);
+        setButton(player, inventory, "preset-edit.items.direction", placeholders);
+        setButton(player, inventory, "preset-edit.items.horizontal", placeholders);
+        setButton(player, inventory, "preset-edit.items.vertical", placeholders);
+        setButton(player, inventory, "preset-edit.items.cooldown", placeholders);
+        setButton(player, inventory, "preset-edit.items.sound", placeholders);
+        setButton(player, inventory, "preset-edit.items.particle", placeholders);
+        setButton(player, inventory, "preset-edit.items.path-lock", placeholders);
+        setPresetBlockButton(player, inventory, preset, placeholders);
+        setButton(player, inventory, "preset-edit.items.delete", placeholders);
+        setBackButton(player, inventory);
         open(player, inventory, new EditorView(ViewType.EDIT, preset.id(), page, search == null ? "" : search));
     }
 
@@ -233,20 +233,20 @@ public final class EditorManager implements Listener {
                 break;
             }
             String value = filteredValues.get(valueIndex);
-            setValueEntry(inventory, slots.get(index), path, value, value.equals(currentValue));
+            setValueEntry(player, inventory, slots.get(index), path, value, value.equals(currentValue));
         }
 
-        setSearchButton(inventory, buttons.search(query));
+        setSearchButton(inventory, buttons.search(player, query));
         if (!query.isBlank()) {
-            setClearSearchButton(inventory, buttons.clearSearch(path.equals("sound-selector") ? "sounds" : "particles"));
+            setClearSearchButton(inventory, buttons.clearSearch(player, path.equals("sound-selector") ? "sounds" : "particles"));
         }
         if (safePage > 0) {
-            setSharedButton(inventory, path + ".items.previous", buttons.previousPage(safePage, pages - 1));
+            setSharedButton(player, inventory, path + ".items.previous", buttons.previousPage(player, safePage, pages - 1));
         }
         if (safePage < pages - 1) {
-            setSharedButton(inventory, path + ".items.next", buttons.nextPage(safePage, pages - 1));
+            setSharedButton(player, inventory, path + ".items.next", buttons.nextPage(player, safePage, pages - 1));
         }
-        setBackButton(inventory);
+        setBackButton(player, inventory);
         open(player, inventory, new EditorView(type, preset.id(), safePage, query, parentSearch == null ? "" : parentSearch));
     }
 
@@ -260,8 +260,8 @@ public final class EditorManager implements Listener {
         Map<String, String> placeholders = preset.placeholders(plugin.messages());
         Inventory inventory = Bukkit.createInventory(player, 27, plugin.guiConfig().title("confirm-delete", placeholders));
         plugin.guiConfig().fill(inventory);
-        setButton(inventory, "confirm-delete.items.confirm", placeholders);
-        setButton(inventory, "confirm-delete.items.cancel", placeholders);
+        setButton(player, inventory, "confirm-delete.items.confirm", placeholders);
+        setButton(player, inventory, "confirm-delete.items.cancel", placeholders);
         open(player, inventory, new EditorView(ViewType.CONFIRM_DELETE, preset.id(), previous.page(), previous.search()));
     }
 
@@ -883,6 +883,7 @@ public final class EditorManager implements Listener {
         }
         String basePath = "presets." + presetId + ".";
         plugin.getConfig().set(basePath + "material", item.getType().name());
+        plugin.getConfig().set(basePath + "item-stack", CursorItemEditor.serializeBase64(item));
         ItemMeta meta = item.getItemMeta();
         if (meta != null && meta.hasDisplayName()) {
             plugin.getConfig().set(basePath + "display-name", meta.getDisplayName());
@@ -1043,36 +1044,28 @@ public final class EditorManager implements Listener {
         return slots;
     }
 
-    private ItemStack presetEntryItem(JumpPadPreset preset) {
+    private ItemStack presetEntryItem(Player player, JumpPadPreset preset) {
         Map<String, String> placeholders = preset.placeholders(plugin.messages());
-        ItemStack item = new ItemStack(preset.material());
-        ItemMeta meta = item.getItemMeta();
-        if (meta != null) {
-            meta.setDisplayName(plugin.messages().renderTemplate(
-                    plugin.guiConfig().string("preset-browser.entry.name", "{theme}{preset}"), placeholders));
-            List<String> lore = plugin.guiConfig().stringList("preset-browser.entry.lore");
-            if (lore.isEmpty()) {
-                lore = List.of(
-                        "{white}Enabled: {enabled}",
-                        "{white}Horizontal: {theme}{horizontal}",
-                        "{white}Vertical: {theme}{vertical}",
-                        "{muted}Click to edit."
-                );
-            }
-            meta.setLore(colorList(lore, placeholders));
-            meta.addItemFlags(ItemFlag.HIDE_ATTRIBUTES);
-            item.setItemMeta(meta);
+        List<String> lore = plugin.guiConfig().stringList("preset-browser.entry.lore");
+        if (lore.isEmpty()) {
+            lore = List.of(
+                    "Enabled: {enabled}",
+                    "Horizontal: {horizontal}",
+                    "Vertical: {vertical}"
+            );
         }
-        return item;
+        String label = plugin.messages().renderTemplate(
+                plugin.guiConfig().string("preset-browser.entry.name", "{theme}{preset}"), placeholders);
+        return EditorItemFactory.button(player, preset.material(), "{theme}", label,
+                colorList(lore, placeholders), "edit this preset");
     }
 
-    private ItemStack presetAddButton() {
-        ItemStack item = plugin.guiConfig().item("preset-browser.items.add", Map.of());
-        item.setType(Material.ANVIL);
-        return item;
+    private ItemStack presetAddButton(Player player) {
+        return EditorItemFactory.button(player, Material.ANVIL, "{theme}", "Add Preset",
+                List.of("Create a new preset."), "create a preset");
     }
 
-    private void setValueEntry(Inventory inventory, int slot, String path, String value, boolean selected) {
+    private void setValueEntry(Player player, Inventory inventory, int slot, String path, String value, boolean selected) {
         if (!validSlot(inventory, slot)) {
             return;
         }
@@ -1083,28 +1076,25 @@ public final class EditorManager implements Listener {
                 "value", value,
                 "selected", selected ? color("{good}Selected") : color("{muted}No")
         );
-        ItemStack item = new ItemStack(material);
-        ItemMeta meta = item.getItemMeta();
-        if (meta != null) {
-            meta.setDisplayName(plugin.messages().renderTemplate(
-                    plugin.guiConfig().string(path + ".entry.name", "{theme}{value}"), placeholders));
-            List<String> lore = plugin.guiConfig().stringList(path + ".entry.lore");
-            if (lore.isEmpty()) {
-                lore = List.of("{white}Current: {selected}", "{muted}Click to select.");
-            }
-            meta.setLore(colorList(lore, placeholders));
-            meta.addItemFlags(ItemFlag.HIDE_ATTRIBUTES);
-            item.setItemMeta(meta);
+        List<String> lore = plugin.guiConfig().stringList(path + ".entry.lore");
+        if (lore.isEmpty()) {
+            lore = List.of("Current: {selected}");
         }
+        String label = plugin.messages().renderTemplate(
+                plugin.guiConfig().string(path + ".entry.name", "{theme}{value}"), placeholders);
+        ItemStack item = EditorItemFactory.button(player, material,
+                selected ? "{good}" : "{theme}",
+                plugin.messages().renderTemplate(label, Map.of()),
+                colorList(lore, placeholders), "select this value");
         inventory.setItem(slot, item);
     }
 
-    private void setPresetBlockButton(Inventory inventory, JumpPadPreset preset, Map<String, String> placeholders) {
+    private void setPresetBlockButton(Player player, Inventory inventory, JumpPadPreset preset, Map<String, String> placeholders) {
         int slot = configuredSlot("preset-edit.items.item", 31);
         if (!validSlot(inventory, slot)) {
             return;
         }
-        inventory.setItem(slot, plugin.guiConfig().namedItem(
+        inventory.setItem(slot, plugin.guiConfig().namedItem(player,
                 preset.material(),
                 "preset-edit.items.item.name",
                 "preset-edit.items.item.lore",
@@ -1136,22 +1126,22 @@ public final class EditorManager implements Listener {
         return placeholders;
     }
 
-    private void setButton(Inventory inventory, String sectionPath, Map<String, String> placeholders) {
+    private void setButton(Player player, Inventory inventory, String sectionPath, Map<String, String> placeholders) {
         int slot = configuredSlot(sectionPath, -1);
         if (validSlot(inventory, slot)) {
-            inventory.setItem(slot, plugin.guiConfig().item(sectionPath, placeholders));
+            inventory.setItem(slot, plugin.guiConfig().item(player, sectionPath, placeholders));
         }
     }
 
-    private void setSharedButton(Inventory inventory, String sectionPath, ItemStack item) {
+    private void setSharedButton(Player player, Inventory inventory, String sectionPath, ItemStack item) {
         int slot = configuredSlot(sectionPath, -1);
         if (validSlot(inventory, slot)) {
             inventory.setItem(slot, item);
         }
     }
 
-    private void setBackButton(Inventory inventory) {
-        inventory.setItem(backSlot(inventory.getSize()), buttons.back());
+    private void setBackButton(Player player, Inventory inventory) {
+        inventory.setItem(backSlot(inventory.getSize()), buttons.back(player));
     }
 
     private void setSearchButton(Inventory inventory, ItemStack item) {
@@ -1186,11 +1176,11 @@ public final class EditorManager implements Listener {
         return Math.max(1, inventorySize / GuiSlots.ROW_SIZE);
     }
 
-    private ItemStack worldsButton() {
+    private ItemStack worldsButton(Player player) {
         List<String> disabledWorlds = plugin.getConfig().getStringList("settings.disabled-worlds");
         int disabledCount = disabledWorlds.size();
         int totalWorlds = WorldSelectionEntries.loadedAndConfigured(plugin, disabledWorlds).size();
-        return EditorItemFactory.worlds(Math.max(0, totalWorlds - disabledCount), disabledCount, "Enabled");
+        return EditorItemFactory.worlds(player, Math.max(0, totalWorlds - disabledCount), disabledCount, "Enabled");
     }
 
     private void applyCoreSelectorLayout(Inventory inventory, TriStateSelectionRequest request) {

@@ -2,6 +2,7 @@ package me.foesio.foJumpPads;
 
 import me.foesio.core.gui.GuiSlots;
 import me.foesio.core.gui.GuiTitles;
+import me.foesio.core.editor.EditorItemFactory;
 import me.foesio.core.material.MaterialTypes;
 import me.foesio.core.message.FoMessageService;
 import org.bukkit.Material;
@@ -9,6 +10,7 @@ import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemFlag;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
+import org.bukkit.entity.Player;
 
 import java.util.List;
 import java.util.Map;
@@ -239,6 +241,17 @@ public final class GuiConfig {
         return buildItem(template.material(), template.name(), template.lore(), placeholders);
     }
 
+    public ItemStack item(Player viewer, String sectionPath, Map<String, String> placeholders) {
+        ItemTemplate template = ITEMS.getOrDefault(sectionPath, new ItemTemplate(Material.BARRIER, Material.BARRIER.name(), List.of()));
+        String nameColor = template.name().contains("{bad}") ? "{bad}"
+                : template.name().contains("{good}") ? "{good}" : "{theme}";
+        String label = messages.renderTemplateForViewer(viewer, template.name(), placeholders);
+        List<String> lore = colorList(viewer, template.lore(), placeholders);
+        String action = sectionPath.substring(sectionPath.lastIndexOf('.') + 1)
+                .replace('-', ' ');
+        return EditorItemFactory.button(viewer, template.material(), nameColor, label, lore, action);
+    }
+
     public ItemStack namedItem(Material material, String namePath, String lorePath, Map<String, String> placeholders) {
         return buildItem(
                 material == null ? Material.BARRIER : material,
@@ -246,6 +259,14 @@ public final class GuiConfig {
                 stringList(lorePath),
                 placeholders
         );
+    }
+
+    public ItemStack namedItem(Player viewer, Material material, String namePath, String lorePath, Map<String, String> placeholders) {
+        return EditorItemFactory.item(viewer,
+                material == null ? Material.BARRIER : material,
+                messages.renderTemplateForViewer(viewer,
+                        stringValue(namePath, material == null ? Material.BARRIER.name() : material.name()), placeholders),
+                colorList(viewer, stringList(lorePath), placeholders));
     }
 
     public void fill(Inventory inventory) {
@@ -311,6 +332,12 @@ public final class GuiConfig {
     private List<String> colorList(List<String> values, Map<String, String> placeholders) {
         return values.stream()
                 .map(value -> messages.renderTemplate(value, placeholders))
+                .toList();
+    }
+
+    private List<String> colorList(Player viewer, List<String> values, Map<String, String> placeholders) {
+        return values.stream()
+                .map(value -> messages.renderTemplateForViewer(viewer, value, placeholders))
                 .toList();
     }
 

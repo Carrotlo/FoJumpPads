@@ -119,8 +119,6 @@ public final class AdminCommand {
     }
 
     private void sendVersion(CommandSender sender) {
-        plugin.messages().send(sender, "version-author", Map.of("author", "Carrotio"));
-        plugin.messages().send(sender, "version-plugin", Map.of("version", plugin.getDescription().getVersion()));
         plugin.updates().checkAndSendVersion(sender);
     }
 
@@ -168,7 +166,7 @@ public final class AdminCommand {
             plugin.adminSounds().updateError(sender);
             return;
         }
-        ItemStack item = preset.createItem(plugin, amount);
+        ItemStack item = preset.createItem(plugin, sender instanceof Player player ? player : null, amount);
         plugin.core().inventoryDeposits().deposit(target, item, target.getLocation(), OverflowPolicy.DROP_OVERFLOW);
         Map<String, String> placeholders = Map.of(
                 "player", target.getName(),
