@@ -13,6 +13,7 @@ import me.foesio.core.sound.FoSound;
 import me.foesio.core.sound.FoSoundMigrations;
 import me.foesio.core.sound.FoSoundService;
 import me.foesio.core.update.UpdateNoticeService;
+import me.foesio.foJumpPads.api.JumpPadsApi;
 import org.bukkit.Bukkit;
 import org.bukkit.NamespacedKey;
 import org.bukkit.Sound;
@@ -20,6 +21,7 @@ import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.entity.Player;
 import org.bukkit.SoundCategory;
 import org.bukkit.plugin.java.JavaPlugin;
+import org.bukkit.plugin.ServicePriority;
 import org.bukkit.event.HandlerList;
 
 import java.io.File;
@@ -54,6 +56,8 @@ public final class FoJumpPads extends JavaPlugin {
     private UpdateNoticeService updates;
     private FoReloadRegistry reloadRegistry;
     private EditorManager editorManager;
+    private JumpPadListener jumpPadListener;
+    private JumpPadsService jumpPadsService;
     private volatile Set<String> disabledWorlds = Set.of();
     private volatile boolean dropPresetItemOnBreak = true;
     private volatile long pathLockMaxMillis = 5000L;
@@ -86,16 +90,19 @@ public final class FoJumpPads extends JavaPlugin {
         }
 
         editorManager = new EditorManager(this);
+        jumpPadsService = new JumpPadsService(this);
 
-        JumpPadListener jumpPadListener = new JumpPadListener(this);
+        jumpPadListener = new JumpPadListener(this);
         Bukkit.getPluginManager().registerEvents(jumpPadListener, this);
         Bukkit.getPluginManager().registerEvents(editorManager, this);
 
         new AdminCommand(this).register();
+        Bukkit.getServicesManager().register(JumpPadsApi.class, jumpPadsService, this, ServicePriority.Normal);
     }
 
     @Override
     public void onDisable() {
+        Bukkit.getServicesManager().unregisterAll(this);
         if (padStorage != null) {
             try {
                 padStorage.close();
@@ -280,6 +287,14 @@ public final class FoJumpPads extends JavaPlugin {
 
     public EditorManager editor() {
         return editorManager;
+    }
+
+    JumpPadListener jumpPadListener() {
+        return jumpPadListener;
+    }
+
+    JumpPadsService jumpPadsService() {
+        return jumpPadsService;
     }
 
     public PadData padData(PadLocation location) {

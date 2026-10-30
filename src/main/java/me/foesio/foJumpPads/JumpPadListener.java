@@ -1,5 +1,13 @@
 package me.foesio.foJumpPads;
 
+import me.foesio.foJumpPads.api.JumpPadBeforeLaunchEvent;
+import me.foesio.foJumpPads.api.JumpPadLaunchedEvent;
+import me.foesio.foJumpPads.api.ChangeResult;
+import me.foesio.foJumpPads.api.LaunchCause;
+import me.foesio.foJumpPads.api.LaunchResult;
+import me.foesio.foJumpPads.api.PadSnapshot;
+import me.foesio.foJumpPads.api.PlayerStatus;
+import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.block.Block;
 import org.bukkit.block.BlockFace;
@@ -20,8 +28,8 @@ import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.persistence.PersistentDataType;
 import org.bukkit.util.Vector;
 
-import java.sql.SQLException;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -35,6 +43,7 @@ public final class JumpPadListener implements Listener {
     private final Map<UUID, Long> cooldowns = new ConcurrentHashMap<>();
     private final Map<UUID, Long> fallImmunity = new ConcurrentHashMap<>();
     private final Map<UUID, PathLock> pathLocks = new ConcurrentHashMap<>();
+    private final Set<UUID> launchesInProgress = ConcurrentHashMap.newKeySet();
 
     public JumpPadListener(FoJumpPads plugin) {
         this.plugin = plugin;
@@ -54,12 +63,10 @@ public final class JumpPadListener implements Listener {
         }
         PadLocation location = PadLocation.from(event.getBlockPlaced());
         PadData data = new PadData(preset.id(), event.getBlockPlaced().getType());
-        try {
-            plugin.storage().savePad(location, data);
-            plugin.putPad(location, data);
+        ChangeResult result = plugin.jumpPadsService().registerPad(location, data);
+        if (result == ChangeResult.CREATED || result == ChangeResult.UPDATED || result == ChangeResult.UNCHANGED) {
             plugin.messages().send(event.getPlayer(), "pad-saved", Map.of("preset", preset.id()));
-        } catch (SQLException exception) {
-            plugin.logWarn("Could not save placed pad: " + exception.getMessage());
+        } else {
             plugin.messages().send(event.getPlayer(), "pad-save-failed");
             event.setCancelled(true);
         }
@@ -72,13 +79,11 @@ public final class JumpPadListener implements Listener {
         if (data == null) {
             return;
         }
-        try {
-            plugin.storage().deletePad(location);
-            plugin.removePad(location);
+        ChangeResult result = plugin.jumpPadsService().removePad(location);
+        if (result == ChangeResult.REMOVED) {
             dropPresetItem(event, data.presetId());
             plugin.messages().send(event.getPlayer(), "pad-removed", Map.of("preset", data.presetId()));
-        } catch (SQLException exception) {
-            plugin.logWarn("Could not remove pad: " + exception.getMessage());
+        } else {
             plugin.messages().send(event.getPlayer(), "pad-remove-failed");
             event.setCancelled(true);
         }
@@ -116,7 +121,7 @@ public final class JumpPadListener implements Listener {
         }
         JumpPadPreset preset = plugin.presets().get(data.presetId());
         if (preset != null && preset.enabled()) {
-            tryLaunch(player, preset);
+            tryLaunch(player, preset, PadLocation.from(block));
         }
     }
 
@@ -130,13 +135,13 @@ public final class JumpPadListener implements Listener {
         if (plugin.isWorldDisabled(player.getWorld().getName())) {
             return;
         }
-        PadData data = padAt(event.getTo(), false);
-        if (data == null) {
+        PadMatch match = padAt(event.getTo(), false);
+        if (match == null) {
             return;
         }
-        JumpPadPreset preset = plugin.presets().get(data.presetId());
+        JumpPadPreset preset = plugin.presets().get(match.data().presetId());
         if (preset != null && preset.enabled()) {
-            tryLaunch(player, preset);
+            tryLaunch(player, preset, match.location());
         }
     }
 
@@ -171,17 +176,44 @@ public final class JumpPadListener implements Listener {
         pathLocks.remove(event.getPlayer().getUniqueId());
     }
 
-    private void tryLaunch(Player player, JumpPadPreset preset) {
-        long now = System.currentTimeMillis();
-        if (cooldowns.getOrDefault(player.getUniqueId(), 0L) > now) {
-            return;
+    LaunchResult tryLaunch(Player player, JumpPadPreset preset, PadLocation padLocation) {
+        UUID playerId = player.getUniqueId();
+        if (!launchesInProgress.add(playerId)) {
+            return LaunchResult.IN_PROGRESS;
         }
-        launch(player, preset);
-        cooldowns.put(player.getUniqueId(), now + preset.cooldownTicks() * 50L);
-        fallImmunity.put(player.getUniqueId(), now + preset.fallDamageImmunityTicks() * 50L);
+        try {
+            long now = System.currentTimeMillis();
+            if (cooldowns.getOrDefault(playerId, 0L) > now) {
+                return LaunchResult.COOLDOWN;
+            }
+            Vector velocity = launchVelocity(player, preset);
+            PadData data = padLocation == null ? null : plugin.padData(padLocation);
+            PadSnapshot pad = data == null ? null : plugin.jumpPadsService().snapshot(padLocation, data);
+            LaunchCause cause = padLocation == null ? LaunchCause.API : LaunchCause.PAD;
+            JumpPadBeforeLaunchEvent before = new JumpPadBeforeLaunchEvent(player, preset.id(), pad, cause, velocity);
+            Bukkit.getPluginManager().callEvent(before);
+            if (before.isCancelled()) {
+                return LaunchResult.CANCELLED;
+            }
+            launch(player, preset, velocity);
+            now = System.currentTimeMillis();
+            cooldowns.put(playerId, now + preset.cooldownTicks() * 50L);
+            fallImmunity.put(playerId, now + preset.fallDamageImmunityTicks() * 50L);
+            Bukkit.getPluginManager().callEvent(new JumpPadLaunchedEvent(player, preset.id(), pad, cause, velocity));
+            return LaunchResult.LAUNCHED;
+        } finally {
+            launchesInProgress.remove(playerId);
+        }
     }
 
-    private void launch(Player player, JumpPadPreset preset) {
+    PlayerStatus status(Player player) {
+        long now = System.currentTimeMillis();
+        UUID id = player.getUniqueId();
+        return new PlayerStatus(Math.max(0, cooldowns.getOrDefault(id, 0L) - now),
+                Math.max(0, fallImmunity.getOrDefault(id, 0L) - now));
+    }
+
+    private Vector launchVelocity(Player player, JumpPadPreset preset) {
         Vector direction = horizontalDirection(player, preset.directionMode());
         if (direction.lengthSquared() > MIN_HORIZONTAL_LENGTH_SQUARED) {
             direction.normalize().multiply(preset.horizontalVelocity());
@@ -189,8 +221,12 @@ public final class JumpPadListener implements Listener {
             direction = new Vector();
         }
         direction.setY(preset.verticalVelocity());
-        player.setVelocity(direction);
-        startPathLock(player, preset, direction);
+        return direction;
+    }
+
+    private void launch(Player player, JumpPadPreset preset, Vector velocity) {
+        player.setVelocity(velocity.clone());
+        startPathLock(player, preset, velocity);
         plugin.sounds().playWithPitchVariation(
                 player,
                 "jump-pad.presets." + preset.id(),
@@ -247,16 +283,17 @@ public final class JumpPadListener implements Listener {
         return fixed == null ? new Vector() : fixed;
     }
 
-    private PadData padAt(Location location, boolean allowPressurePlate) {
+    private PadMatch padAt(Location location, boolean allowPressurePlate) {
         Block feet = location.getBlock();
         PadLocation feetLocation = PadLocation.from(feet);
         PadData feetData = validPad(feetLocation, feet, allowPressurePlate);
         if (feetData != null) {
-            return feetData;
+            return new PadMatch(feetLocation, feetData);
         }
         Block below = feet.getRelative(BlockFace.DOWN);
         PadLocation belowLocation = PadLocation.from(below);
-        return validPad(belowLocation, below, allowPressurePlate);
+        PadData belowData = validPad(belowLocation, below, allowPressurePlate);
+        return belowData == null ? null : new PadMatch(belowLocation, belowData);
     }
 
     private PadData validPad(PadLocation location, Block block, boolean allowPressurePlate) {
@@ -275,12 +312,7 @@ public final class JumpPadListener implements Listener {
     }
 
     private void pruneStalePad(PadLocation location) {
-        plugin.removePad(location);
-        try {
-            plugin.storage().deletePad(location);
-        } catch (SQLException exception) {
-            plugin.logWarn("Could not prune stale jump pad: " + exception.getMessage());
-        }
+        plugin.jumpPadsService().removePad(location);
     }
 
     private boolean sameBlock(Location first, Location second) {
@@ -300,4 +332,6 @@ public final class JumpPadListener implements Listener {
 
     private record PathLock(Vector horizontalVelocity, long startedAtMillis, long expiresAtMillis) {
     }
+
+    private record PadMatch(PadLocation location, PadData data) { }
 }

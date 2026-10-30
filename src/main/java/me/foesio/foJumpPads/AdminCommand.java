@@ -8,6 +8,7 @@ import me.foesio.core.command.FoAdminMessages;
 import me.foesio.core.command.FoAdminSubcommand;
 import me.foesio.core.inventory.OverflowPolicy;
 import me.foesio.core.reload.FoReloadResult;
+import me.foesio.foJumpPads.api.ChangeResult;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.World;
@@ -15,7 +16,6 @@ import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
 
-import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
@@ -390,14 +390,7 @@ public final class AdminCommand {
     }
 
     private boolean prunePad(PadLocation location) {
-        try {
-            plugin.storage().deletePad(location);
-            plugin.removePad(location);
-            return true;
-        } catch (SQLException exception) {
-            plugin.logWarn("Could not remove jump pad: " + exception.getMessage());
-            return false;
-        }
+        return plugin.jumpPadsService().removePad(location) == ChangeResult.REMOVED;
     }
 
     private boolean isBlockStillPad(World world, PadEntry entry) {
